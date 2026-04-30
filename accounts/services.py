@@ -2,60 +2,154 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
-from django.core import signing
 from django.db import transaction
 from django.utils import timezone
-
-from notifications.tasks import send_verification_email_task
-from notifications.utils import safe_dispatch
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import NoShowRestriction, Profile, User
-from .verification import build_email_verification_token, build_email_verification_url, load_email_verification_token
 
+import uuid
+from django.utils.text import slugify
 
-class EmailVerificationService:
+import uuid
+from django.db import transaction
+from django.utils.text import slugify
+from django.conf import settings
+
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from .models import User
+
+class GoogleAuthService:
     @staticmethod
-    def send_verification_email(user: User, *, enforce_cooldown: bool = True):
-        if user.is_verified:
-            raise ValueError('Account is already verified.')
-        if enforce_cooldown and user.verification_email_sent_at:
-            elapsed = (timezone.now() - user.verification_email_sent_at).total_seconds()
-            if elapsed < settings.EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS:
-                raise ValueError('Please wait before requesting another verification email.')
+    def _verify_id_token(token: str):
+        if not settings.GOOGLE_OAUTH_CLIENT_ID:
+            raise ValueError("GOOGLE_OAUTH_CLIENT_ID is not configured.")
 
-        token = build_email_verification_token(user)
-        verification_url = build_email_verification_url(token)
-        user.verification_email_sent_at = timezone.now()
-        user.save(update_fields=['verification_email_sent_at'])
-
-        # Delivery is queued asynchronously so registration response stays fast.
-        safe_dispatch(send_verification_email_task, user.id, user.email, user.full_name, verification_url)
-        return verification_url
-
-    @staticmethod
-    def resend_verification_email(user: User):
-        return EmailVerificationService.send_verification_email(user)
-
-    @staticmethod
-    @transaction.atomic
-    def verify_email(token: str):
         try:
-            payload = load_email_verification_token(token)
-        except signing.SignatureExpired as exc:
-            raise ValueError('Verification link has expired.') from exc
-        except signing.BadSignature as exc:
-            raise ValueError('Verification link is invalid.') from exc
+            from google.auth.transport import requests as google_requests
+            from google.oauth2 import id_token
+        except ImportError as exc:
+            raise ValueError("Google auth dependencies are not installed.") from exc
 
-        user = User.objects.select_for_update().filter(id=payload['user_id'], email=payload['email']).first()
-        if not user:
-            raise ValueError('User not found.')
-        if user.is_verified:
-            return user
+        try:
+            return id_token.verify_oauth2_token(
+                token,
+                google_requests.Request(),
+                settings.GOOGLE_OAUTH_CLIENT_ID,
+            )
+        except ValueError:
+            raise ValueError("Invalid Google ID token.")
 
-        user.is_verified = True
-        user.save(update_fields=['is_verified'])
+    # ---------------------------
+    # username generator
+    # ---------------------------
+    @staticmethod
+    def generate_username(full_name: str):
+        base = slugify(full_name)[:20] or "user"
+        unique_id = uuid.uuid4().hex[:6]
+        return f"{base}-{unique_id}"
+
+    # ---------------------------
+    # main auth flow
+    # ---------------------------
+    @classmethod
+    @transaction.atomic
+    def authenticate(cls, token: str):
+        payload = cls._verify_id_token(token)
+
+        google_sub = payload.get("sub")
+        email = payload.get("email")
+        full_name = (payload.get("name") or "").strip()
+        picture = payload.get("picture")
+
+        if not google_sub:
+            raise ValueError("Google token missing sub.")
+        if not email:
+            raise ValueError("Google token missing email.")
+        if not payload.get("email_verified", False):
+            raise ValueError("Google email not verified.")
+
+        # ---------------------------
+        # FIND USER
+        # ---------------------------
+        user = User.objects.select_for_update().filter(google_sub=google_sub).first()
+
+        if user is None:
+            user = User.objects.select_for_update().filter(email=email).first()
+
+            if user and user.google_sub and user.google_sub != google_sub:
+                raise ValueError("Email linked to another Google account.")
+
+        # ---------------------------
+        # CREATE USER
+        # ---------------------------
+        if user is None:
+            user = User.objects.create_user(
+                email=email,
+                password=None,
+                full_name=full_name or email.split("@")[0],
+                google_sub=google_sub,
+                is_verified=True,
+            )
+
+            # username
+            user.username = cls.generate_username(user.full_name)
+            user.save(update_fields=["username"])
+
+        # ---------------------------
+        # UPDATE USER
+        # ---------------------------
+        updated_fields = []
+
+        if user.google_sub != google_sub:
+            user.google_sub = google_sub
+            updated_fields.append("google_sub")
+
+        if user.email != email:
+            user.email = email
+            updated_fields.append("email")
+
+        if full_name and user.full_name != full_name:
+            user.full_name = full_name
+            updated_fields.append("full_name")
+
+        if not user.is_verified:
+            user.is_verified = True
+            updated_fields.append("is_verified")
+
+        if not user.username:
+            user.username = cls.generate_username(user.full_name)
+            updated_fields.append("username")
+
+        if updated_fields:
+            user.save(update_fields=updated_fields)
+
+        # ---------------------------
+        # PROFILE PHOTO (Google fallback)
+        # ---------------------------
+        profile = user.profile
+
+        if picture and not profile.google_photo:
+            profile.google_photo = picture
+            profile.save(update_fields=["google_photo"])
+
         return user
 
+    # ---------------------------
+    # token response
+    # ---------------------------
+    @staticmethod
+    def create_token_payload(user: User):
+        refresh = RefreshToken.for_user(user)
+
+        from .serializers import UserSerializer
+
+        return {
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": UserSerializer(user).data,
+        }
 
 class ReliabilityService:
     BASE_SCORE = Decimal('100.00')

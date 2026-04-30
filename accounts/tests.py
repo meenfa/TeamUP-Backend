@@ -1,74 +1,138 @@
+import base64
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from .models import User
-from .verification import build_email_verification_token
 
 
-class EmailVerificationFlowTests(APITestCase):
-    registration_payload = {
-        'email': 'user1@example.com',
-        'phone_number': '9800000001',
-        'full_name': 'User One',
-        'password': 'password123',
-    }
-
-    @patch('accounts.services.safe_dispatch')
-    def test_register_sends_verification_email_and_leaves_user_unverified(self, mock_dispatch):
-        response = self.client.post(reverse('register'), self.registration_payload, format='json')
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        user = User.objects.get(email=self.registration_payload['email'])
-        self.assertFalse(user.is_verified)
-        self.assertIsNotNone(user.verification_email_sent_at)
-        mock_dispatch.assert_called_once()
-
-    def test_unverified_user_cannot_login(self):
-        User.objects.create_user(
-            email='user1@example.com',
-            password='password123',
-            full_name='User One',
-        )
+class GoogleAuthFlowTests(APITestCase):
+    @patch('accounts.services.GoogleAuthService._verify_id_token')
+    def test_google_auth_creates_verified_user_and_returns_tokens(self, mock_verify):
+        mock_verify.return_value = {
+            'sub': 'google-user-1',
+            'email': 'googleuser@example.com',
+            'email_verified': True,
+            'name': 'Google User',
+        }
 
         response = self.client.post(
-            reverse('login'),
-            {'email': 'user1@example.com', 'password': 'password123'},
+            reverse('google-auth'),
+            {'credential': 'google-id-token'},
             format='json',
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('Account is not verified.', str(response.data))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user = User.objects.get(email='googleuser@example.com')
+        self.assertEqual(user.google_sub, 'google-user-1')
+        self.assertTrue(user.is_verified)
+        self.assertTrue(hasattr(user, 'profile'))
+        self.assertIn('access', response.data['data'])
+        self.assertIn('refresh', response.data['data'])
 
-    def test_verify_email_marks_user_verified(self):
+    @patch('accounts.services.GoogleAuthService._verify_id_token')
+    def test_google_auth_links_existing_user_by_email(self, mock_verify):
         user = User.objects.create_user(
-            email='user1@example.com',
+            email='googleuser@example.com',
             password='password123',
-            full_name='User One',
+            full_name='Existing User',
         )
-        token = build_email_verification_token(user)
+        mock_verify.return_value = {
+            'sub': 'google-user-2',
+            'email': 'googleuser@example.com',
+            'email_verified': True,
+            'name': 'Existing User Updated',
+        }
 
-        response = self.client.get(reverse('verify-email'), {'token': token})
+        response = self.client.post(
+            reverse('google-auth'),
+            {'id_token': 'google-id-token'},
+            format='json',
+        )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         user.refresh_from_db()
+        self.assertEqual(user.google_sub, 'google-user-2')
         self.assertTrue(user.is_verified)
+        self.assertEqual(user.full_name, 'Existing User Updated')
 
-    @patch('accounts.services.safe_dispatch')
-    def test_resend_verification_resends_for_unverified_user(self, mock_dispatch):
-        User.objects.create_user(
-            email='user1@example.com',
-            password='password123',
-            full_name='User One',
-        )
+    @patch('accounts.services.GoogleAuthService._verify_id_token')
+    def test_google_auth_tokens_can_refresh(self, mock_verify):
+        mock_verify.return_value = {
+            'sub': 'google-user-3',
+            'email': 'refreshuser@example.com',
+            'email_verified': True,
+            'name': 'Refresh User',
+        }
 
-        response = self.client.post(
-            reverse('resend-verification'),
-            {'email': 'user1@example.com'},
+        auth_response = self.client.post(
+            reverse('google-auth'),
+            {'credential': 'google-id-token'},
             format='json',
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_dispatch.assert_called_once()
+        refresh_response = self.client.post(
+            reverse('token-refresh'),
+            {'refresh': auth_response.data['data']['refresh']},
+            format='json',
+        )
+
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', refresh_response.data)
+
+
+class ProfileFlowTests(APITestCase):
+    tiny_gif = base64.b64decode('R0lGODdhAQABAIABAP///wAAACwAAAAAAQABAAACAkQBADs=')
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='player@example.com',
+            password=None,
+            full_name='Player One',
+            google_sub='google-player-1',
+            is_verified=True,
+        )
+
+    @patch('accounts.services.GoogleAuthService._verify_id_token')
+    def test_profile_retrieve_and_update_after_google_sign_in(self, mock_verify):
+        mock_verify.return_value = {
+            'sub': 'google-player-1',
+            'email': 'player@example.com',
+            'email_verified': True,
+            'name': 'Player One',
+        }
+
+        auth_response = self.client.post(
+            reverse('google-auth'),
+            {'credential': 'google-id-token'},
+            format='json',
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {auth_response.data['data']['access']}")
+
+        retrieve_response = self.client.get(reverse('profile'))
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(retrieve_response.data['data']['email'], 'player@example.com')
+
+        profile_photo = SimpleUploadedFile('avatar.gif', self.tiny_gif, content_type='image/gif')
+        update_response = self.client.patch(
+            reverse('profile'),
+            {
+                'full_name': 'Player One Updated',
+                'phone_number': '9800000001',
+                'city': 'Kathmandu',
+                'preferred_area': 'Baneshwor',
+                'bio': 'Weekend futsal player',
+                'profile_photo': profile_photo,
+            },
+            format='multipart',
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.full_name, 'Player One Updated')
+        self.assertEqual(self.user.phone_number, '9800000001')
+        self.assertEqual(self.user.profile.city, 'Kathmandu')
+        self.assertTrue(bool(self.user.profile.profile_photo))

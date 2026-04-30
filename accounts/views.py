@@ -1,80 +1,106 @@
-from rest_framework import generics, permissions, status
-from rest_framework.response import Response
+from rest_framework import generics, permissions
 from rest_framework.views import APIView
-from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
+from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.conf import settings
+from django.shortcuts import get_object_or_404
 from common.mixins import StandardResponseMixin
 
 from .serializers import (
-    LoginSerializer,
+    GoogleAuthSerializer,
     LogoutSerializer,
     ProfileSerializer,
-    RegisterSerializer,
-    ResendVerificationSerializer,
-    UserSerializer,
-    VerifyEmailSerializer,
 )
+from .models import User
 
+from rest_framework.response import Response
 
-class RegisterView(StandardResponseMixin, generics.CreateAPIView):
-    serializer_class = RegisterSerializer
-    permission_classes = [permissions.AllowAny]
+from rest_framework.response import Response
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return self.success_response(UserSerializer(user).data, 'Registration successful. Verification email sent.', status.HTTP_201_CREATED)
+from rest_framework.response import Response
 
-
-class VerifyEmailView(StandardResponseMixin, APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request):
-        serializer = VerifyEmailSerializer(data=request.query_params)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return self.success_response({'email': user.email, 'is_verified': user.is_verified}, 'Email verified successfully.')
-
-    def post(self, request):
-        serializer = VerifyEmailSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return self.success_response({'email': user.email, 'is_verified': user.is_verified}, 'Email verified successfully.')
-
-
-class ResendVerificationView(StandardResponseMixin, APIView):
+class GoogleAuthView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        serializer = ResendVerificationSerializer(data=request.data)
+        serializer = GoogleAuthSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return self.success_response(message='Verification email resent successfully.')
 
+        user = serializer.save()
 
-class LoginView(StandardResponseMixin, APIView):
-    permission_classes = [permissions.AllowAny]
+        refresh = RefreshToken.for_user(user)
+        access = str(refresh.access_token)
 
-    def post(self, request):
-        serializer = LoginSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        return self.success_response(serializer.create_token_payload(), 'Login successful.')
+        data = {
+            "success": True,
+            "message": "Google login successful",
+            "data": {
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "username": user.username,
+                }
+            }
+        }
 
+        response = Response(data)
 
+        # 🔥 DEBUG (MUST SEE IN TERMINAL)
+        print("🔥 SETTING ACCESS COOKIE")
+
+        response.set_cookie(
+            "access",
+            access,
+            httponly=True,
+            samesite="Lax",
+            secure=False,
+            path="/",
+        )
+
+        response.set_cookie(
+            "refresh",
+            str(refresh),
+            httponly=True,
+            samesite="Lax",
+            secure=False,
+            path="/",
+        )
+
+        print("🔥 COOKIE ADDED")
+
+        return response
+    
+# Logout View
 class LogoutView(StandardResponseMixin, APIView):
     def post(self, request):
         serializer = LogoutSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return self.success_response(message='Logout successful.')
+
+        response = self.success_response(message="Logout successful.")
+
+        response.delete_cookie("access")
+        response.delete_cookie("refresh")
+
+        return response
 
 
+# Profile View
 class ProfileView(StandardResponseMixin, generics.RetrieveUpdateAPIView):
     serializer_class = ProfileSerializer
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_object(self):
-        return self.request.user.profile
+        user = self.request.user
+        print("USER:", user)
+
+        if not user or user.is_anonymous:
+            raise Exception("Not logged in")
+
+        return user.profile
 
     def retrieve(self, request, *args, **kwargs):
         serializer = self.get_serializer(self.get_object())
@@ -89,7 +115,21 @@ class ProfileView(StandardResponseMixin, generics.RetrieveUpdateAPIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return self.success_response(serializer.data, 'Profile updated successfully.')
+    
+# class [public profile view]
+class PublicProfileView(StandardResponseMixin, APIView):
+    permission_classes = [permissions.AllowAny]
 
+    def get(self, request, username):
+        user = get_object_or_404(User, username=username)
+
+        return self.success_response({
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "full_name": user.full_name,
+            "profile_photo": user.profile.profile_photo if hasattr(user, "profile") else None
+        })
 
 class TeamUpTokenRefreshView(TokenRefreshView):
     permission_classes = [permissions.AllowAny]

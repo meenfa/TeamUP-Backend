@@ -4,6 +4,7 @@ import os
 
 from dotenv import load_dotenv
 from celery.schedules import crontab
+# from decouple import config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
@@ -12,6 +13,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'unsafe-dev-secret')
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 ALLOWED_HOSTS = [host.strip() for host in os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost').split(',') if host.strip()]
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if origin.strip()]
+# GOOGLE_CLIENT_ID =  config("GOOGLE_CLIENT_ID")
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -28,9 +30,11 @@ INSTALLED_APPS = [
     'games',
     'ratings',
     'notifications',
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -79,7 +83,16 @@ else:
             'PORT': os.getenv('DB_PORT', '5432'),
         }
     }
+CORS_ALLOW_CREDENTIALS = True
+    
+CORS_ALLOWED_ORIGINS = [
+     "http://localhost:3000",
+]
 
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+]
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -94,7 +107,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-MEDIA_URL = 'media/'
+MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -102,10 +115,11 @@ AUTH_USER_MODEL = 'accounts.User'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+         "accounts.authentication.CookieJWTAuthentication",
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.AllowAny',
+        # 'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_PAGINATION_CLASS': 'common.pagination.DefaultPagination',
     'PAGE_SIZE': 10,
@@ -135,10 +149,8 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@teamup.local')
-RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
-EMAIL_VERIFICATION_URL = os.getenv('EMAIL_VERIFICATION_URL', 'http://127.0.0.1:8000/api/auth/verify-email/')
-EMAIL_VERIFICATION_TOKEN_MAX_AGE_SECONDS = int(os.getenv('EMAIL_VERIFICATION_TOKEN_MAX_AGE_SECONDS', '86400'))
-EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = int(os.getenv('EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS', '60'))
+GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', os.getenv('OAuth_Client_ID', ''))
+GOOGLE_OAUTH_CLIENT_SECRET = os.getenv('GOOGLE_OAUTH_CLIENT_SECRET', os.getenv('OAuth_Client_secret', ''))
 GAME_REMINDER_LEAD_MINUTES = int(os.getenv('GAME_REMINDER_LEAD_MINUTES', '120'))
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')

@@ -7,6 +7,7 @@ Production-minded backend MVP for **TeamUp**, a futsal game coordination and pla
 - user registration
 - email verification links sent through Resend
 - JWT authentication with refresh + blacklist logout
+- Google sign-in with backend ID token verification
 - profile management
 - game creation, update, discovery, search, filtering, and pagination
 - join and leave game flows
@@ -259,6 +260,7 @@ Base path: `/api/`
 - `POST /api/auth/verify-email/`
 - `POST /api/auth/resend-verification/`
 - `POST /api/auth/login/`
+- `POST /api/auth/google/`
 - `POST /api/auth/token/refresh/`
 - `POST /api/auth/logout/`
 
@@ -326,6 +328,15 @@ POST /api/auth/login/
 {
   "email": "alice@example.com",
   "password": "SecurePass123!"
+}
+```
+
+### Google auth
+
+```json
+POST /api/auth/google/
+{
+  "credential": "<google-id-token>"
 }
 ```
 

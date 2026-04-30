@@ -9,7 +9,6 @@ class SkillLevel(models.TextChoices):
 
 
 class NotificationType(models.TextChoices):
-    OTP = 'otp', 'OTP'
     GAME_REMINDER = 'game_reminder', 'Game Reminder'
     JOIN_CONFIRMATION = 'join_confirmation', 'Join Confirmation'
     SYSTEM = 'system', 'System'
