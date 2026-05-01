@@ -1,12 +1,13 @@
 from rest_framework import generics, permissions
 from rest_framework.views import APIView
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-
+from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from common.mixins import StandardResponseMixin
+from accounts.auth.utils import set_auth_cookies
 
 from .serializers import (
     GoogleAuthSerializer,
@@ -47,32 +48,8 @@ class GoogleAuthView(APIView):
         }
 
         response = Response(data)
-
-        # 🔥 DEBUG (MUST SEE IN TERMINAL)
-        print("🔥 SETTING ACCESS COOKIE")
-
-        response.set_cookie(
-            "access",
-            access,
-            httponly=True,
-            samesite="Lax",
-            secure=False,
-            path="/",
-        )
-
-        response.set_cookie(
-            "refresh",
-            str(refresh),
-            httponly=True,
-            samesite="Lax",
-            secure=False,
-            path="/",
-        )
-
-        print("🔥 COOKIE ADDED")
-
-        return response
-    
+        return set_auth_cookies(response, access, refresh)
+     
 # Logout View
 class LogoutView(StandardResponseMixin, APIView):
     def post(self, request):
@@ -91,16 +68,11 @@ class LogoutView(StandardResponseMixin, APIView):
 # Profile View
 class ProfileView(StandardResponseMixin, generics.RetrieveUpdateAPIView):
     serializer_class = ProfileSerializer
-    parser_classes = [JSONParser, MultiPartParser, FormParser]
+    permission_classes=[IsAuthenticated]
+    # parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_object(self):
-        user = self.request.user
-        print("USER:", user)
-
-        if not user or user.is_anonymous:
-            raise Exception("Not logged in")
-
-        return user.profile
+        return self.request.user.profile
 
     def retrieve(self, request, *args, **kwargs):
         serializer = self.get_serializer(self.get_object())

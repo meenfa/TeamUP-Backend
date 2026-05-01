@@ -4,8 +4,6 @@ class CookieJWTAuthentication(JWTAuthentication):
     def authenticate(self, request):
         token = request.COOKIES.get("access")
 
-        print("🔥 COOKIE:", token)
-
         if not token:
             return None
 

@@ -9,11 +9,26 @@ from celery.schedules import crontab
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
+
+def env_list(name, default=''):
+    return [item.strip() for item in os.getenv(name, default).split(',') if item.strip()]
+
+
 SECRET_KEY = os.getenv('SECRET_KEY', 'unsafe-dev-secret')
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
-ALLOWED_HOSTS = [host.strip() for host in os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost').split(',') if host.strip()]
-CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if origin.strip()]
-# GOOGLE_CLIENT_ID =  config("GOOGLE_CLIENT_ID")
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', '127.0.0.1,localhost')
+
+CORS_ALLOW_CREDENTIALS = True
+
+
+
+CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS', 'http://localhost:3000' if DEBUG else '')
+CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS', 'http://localhost:3000' if DEBUG else '')
+
+CORS_ALLOW_HEADERS = [
+    "content-type",
+    "authorization",
+]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -83,16 +98,7 @@ else:
             'PORT': os.getenv('DB_PORT', '5432'),
         }
     }
-CORS_ALLOW_CREDENTIALS = True
-    
-CORS_ALLOWED_ORIGINS = [
-     "http://localhost:3000",
-]
 
-CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-]
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -116,10 +122,10 @@ AUTH_USER_MODEL = 'accounts.User'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
          "accounts.authentication.CookieJWTAuthentication",
+         
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.AllowAny',
-        # 'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_PAGINATION_CLASS': 'common.pagination.DefaultPagination',
     'PAGE_SIZE': 10,

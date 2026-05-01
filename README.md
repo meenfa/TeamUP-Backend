@@ -1,23 +1,22 @@
 # TeamUp Backend MVP
 
-Production-minded backend MVP for **TeamUp**, a futsal game coordination and player matching platform built with Django, Django REST Framework, PostgreSQL, Redis, Celery, and JWT.
+Backend MVP for TeamUp, a futsal game coordination and player matching platform built with Django, Django REST Framework, PostgreSQL, Redis, Celery, and Google sign-in.
 
 ## What this backend supports
 
-- user registration
-- email verification links sent through Resend
-- JWT authentication with refresh + blacklist logout
-- Google sign-in with backend ID token verification
+- Google authentication with backend ID token verification
+- JWT authentication stored in HTTP-only cookies
 - profile management
-- game creation, update, discovery, search, filtering, and pagination
+- public profile lookup by username
+- game creation, update, discovery, filtering, search, and pagination
 - join and leave game flows
 - attendance confirmation
-- host-side participant status marking
+- host-side participant approval, rejection, and status marking
 - no-show penalties and reliability scoring
 - temporary restriction after repeated no-shows
-- post-game rating system
+- post-game ratings
 - in-app notifications
-- Celery-backed async verification-email and reminder jobs
+- Celery-backed background tasks
 
 ## Tech stack
 
@@ -28,6 +27,7 @@ Production-minded backend MVP for **TeamUp**, a futsal game coordination and pla
 - PostgreSQL
 - Redis
 - Celery
+- Google Auth
 - Gunicorn
 - Nginx
 - python-dotenv
@@ -35,70 +35,86 @@ Production-minded backend MVP for **TeamUp**, a futsal game coordination and pla
 ## Project structure
 
 ```text
-teamup_backend/
-├── accounts/
-│   ├── auth_urls.py
-│   ├── profile_urls.py
-│   ├── managers.py
-│   ├── models.py
-│   ├── serializers.py
-│   ├── services.py
-│   ├── signals.py
-│   ├── tasks.py
-│   └── views.py
-├── common/
-│   ├── constants.py
-│   ├── exceptions.py
-│   ├── mixins.py
-│   └── pagination.py
-├── config/
-│   ├── celery.py
-│   ├── settings.py
-│   ├── urls.py
-│   └── wsgi.py
-├── games/
-│   ├── filters.py
-│   ├── models.py
-│   ├── permissions.py
-│   ├── serializers.py
-│   ├── services.py
-│   └── views.py
-├── notifications/
-│   ├── models.py
-│   ├── tasks.py
-│   ├── utils.py
-│   └── views.py
-├── ratings/
-│   ├── models.py
-│   ├── serializers.py
-│   ├── services.py
-│   └── views.py
-├── deploy/
-│   ├── gunicorn.service.example
-│   ├── celery.service.example
-│   ├── celerybeat.service.example
-│   └── nginx.teamup.conf.example
-├── .env.example
-├── manage.py
-├── requirements.txt
-└── README.md
+teamup_backend_mvp/
+|-- accounts/
+|   |-- auth/
+|   |-- auth_urls.py
+|   |-- authentication.py
+|   |-- managers.py
+|   |-- models.py
+|   |-- profile_urls.py
+|   |-- serializers.py
+|   |-- services.py
+|   |-- signals.py
+|   |-- tasks.py
+|   `-- views.py
+|-- common/
+|   |-- constants.py
+|   |-- exceptions.py
+|   |-- mixins.py
+|   `-- pagination.py
+|-- config/
+|   |-- asgi.py
+|   |-- celery.py
+|   |-- settings.py
+|   |-- urls.py
+|   `-- wsgi.py
+|-- deploy/
+|   |-- celery.service.example
+|   |-- celerybeat.service.example
+|   |-- gunicorn.service.example
+|   `-- nginx.teamup.conf.example
+|-- games/
+|-- notifications/
+|-- ratings/
+|-- .env.example
+|-- manage.py
+|-- requirements.txt
+`-- README.md
 ```
 
 ## Architecture notes
 
-The project uses modular Django apps so core business areas stay isolated:
+- `accounts`: custom user model, Google auth, cookie JWT auth, profile data, restriction logic
+- `games`: game lifecycle, participation, attendance, host actions, personal game lists
+- `ratings`: post-game trust and honesty ratings
+- `notifications`: in-app notification records and background reminder tasks
+- `common`: shared constants, pagination, exception formatting, and response helpers
 
-- **accounts**: custom user model, profile, email verification, restriction logic, auth endpoints
-- **games**: game lifecycle, participation, attendance, my games, filters
-- **ratings**: trust and honesty ratings after games
-- **notifications**: verification email delivery, join confirmations, reminders
-- **common**: shared constants, pagination, exception format, response helpers
+Business logic lives mainly in service modules so the views stay thin.
 
-Business logic lives mainly in **services** instead of views. Views stay thin and focus on request/response behavior.
+## Authentication model
+
+This backend does not use Resend-based auth flows or email/password login endpoints.
+
+Authentication works like this:
+
+1. The frontend obtains a Google ID token.
+2. The frontend sends that token to `POST /api/auth/google/`.
+3. The backend verifies the token with Google.
+4. The backend creates or updates the user.
+5. The backend issues SimpleJWT access and refresh tokens as HTTP-only cookies.
+6. Protected API endpoints read the access token from the `access` cookie through `accounts.authentication.CookieJWTAuthentication`.
+
+Cookie names:
+
+- `access`
+- `refresh`
+
+Current auth endpoints:
+
+- `POST /api/auth/google/`
+- `POST /api/auth/token/refresh/`
+- `POST /api/auth/logout/`
+
+Current limitation:
+
+- protected requests use the `access` cookie automatically
+- refresh and logout are not fully cookie-native yet and still depend on the refresh token value being submitted to the backend flow
 
 ## Important MVP design choices
 
-### 1. Reliability score
+### Reliability score
 
 The reliability score starts at `100.00`.
 
@@ -107,31 +123,26 @@ The reliability score starts at `100.00`.
 - minimum: `0.00`
 - maximum: `100.00`
 
-This is intentionally simple and explainable for MVP use. The logic lives in `accounts/services.py`.
+### Temporary restriction(Optional)
 
-### 2. Temporary restriction
+When a user reaches `3` no-shows, the system applies a `14` day restriction and blocks that user from joining new games until it expires.
 
-When a user reaches **3 no-shows**, the system creates a **14-day restriction** and prevents joining new games until it expires.
+Celery Beat runs an hourly task to clear expired restrictions.
 
-A Celery beat task clears expired restrictions hourly.
+### Reminders
 
-### 3. Email verification delivery
-
-Verification emails are queued through Celery and delivered through the Resend Email API. If `RESEND_API_KEY` is not configured, the app logs the verification link and stores a fallback notification so local development can continue without a live sender.
-
-### 4. Reminders
-
-When a user joins a game, a reminder task is scheduled for `GAME_REMINDER_LEAD_MINUTES` before the match. If the reminder time is already in the past, the reminder is created immediately.
+When a user joins a game, a reminder task is scheduled for `GAME_REMINDER_LEAD_MINUTES` before the match. If that time has already passed, the reminder is created immediately.
 
 ## Environment variables
 
 Copy `.env.example` to `.env` and adjust the values.
 
-Key variables:
+Important variables:
 
 - `DEBUG`
 - `SECRET_KEY`
 - `ALLOWED_HOSTS`
+- `CORS_ALLOWED_ORIGINS`
 - `CSRF_TRUSTED_ORIGINS`
 - `DB_ENGINE`
 - `DB_NAME`
@@ -144,18 +155,25 @@ Key variables:
 - `CELERY_RESULT_BACKEND`
 - `ACCESS_TOKEN_MINUTES`
 - `REFRESH_TOKEN_DAYS`
-- `RESEND_API_KEY`
-- `EMAIL_VERIFICATION_URL`
-- `EMAIL_VERIFICATION_TOKEN_MAX_AGE_SECONDS`
-- `EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS`
+- `GOOGLE_OAUTH_CLIENT_ID`
+- `GOOGLE_OAUTH_CLIENT_SECRET`
 - `GAME_REMINDER_LEAD_MINUTES`
 - `DEFAULT_FROM_EMAIL`
 
-`DB_ENGINE=sqlite` is supported only as a lightweight local smoke-test fallback. For real usage and deployment use PostgreSQL.
+`DB_ENGINE=sqlite` is supported only as a lightweight local fallback. Main intended runtime is PostgreSQL.
 
 ## Local setup
 
 ### 1. Create a virtual environment
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+macOS or Linux:
 
 ```bash
 python3 -m venv .venv
@@ -171,15 +189,21 @@ pip install -r requirements.txt
 
 ### 3. Configure environment
 
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+macOS or Linux:
+
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your own values.
+Then update `.env` with your values.
 
 ### 4. PostgreSQL setup
-
-Create database and user:
 
 ```sql
 CREATE DATABASE teamup_db;
@@ -225,13 +249,13 @@ PONG
 python manage.py migrate
 ```
 
-### 7. Create admin user
+### 7. Create an admin user
 
 ```bash
 python manage.py createsuperuser
 ```
 
-### 8. Run Django server
+### 8. Run the Django server
 
 ```bash
 python manage.py runserver
@@ -243,7 +267,7 @@ python manage.py runserver
 celery -A config worker -l info
 ```
 
-### 10. Run Celery beat
+### 10. Run Celery Beat
 
 ```bash
 celery -A config beat -l info
@@ -255,11 +279,6 @@ Base path: `/api/`
 
 ### Auth
 
-- `POST /api/auth/register/`
-- `GET /api/auth/verify-email/?token=...`
-- `POST /api/auth/verify-email/`
-- `POST /api/auth/resend-verification/`
-- `POST /api/auth/login/`
 - `POST /api/auth/google/`
 - `POST /api/auth/token/refresh/`
 - `POST /api/auth/logout/`
@@ -268,6 +287,7 @@ Base path: `/api/`
 
 - `GET /api/profile/`
 - `PATCH /api/profile/`
+- `GET /api/profile/{username}/`
 
 ### Games
 
@@ -277,9 +297,9 @@ Base path: `/api/`
 - `PATCH /api/games/{id}/`
 - `POST /api/games/{id}/join/`
 - `POST /api/games/{id}/leave/`
+- `POST /api/games/{id}/confirm-attendance/`
 - `POST /api/games/{id}/approve-participant/`
 - `POST /api/games/{id}/reject-participant/`
-- `POST /api/games/{id}/confirm-attendance/`
 - `POST /api/games/{id}/mark-participant-status/`
 - `GET /api/my-games/`
 
@@ -294,49 +314,66 @@ Base path: `/api/`
 
 ## Sample request flows
 
-### Register
-
-```json
-POST /api/auth/register/
-{
-  "email": "alice@example.com",
-  "phone_number": "+9779800000000",
-  "full_name": "Alice Sharma",
-  "password": "SecurePass123!"
-}
-```
-
-### Verify email
-
-```json
-GET /api/auth/verify-email/?token=<signed-token>
-```
-
-### Resend verification email
-
-```json
-POST /api/auth/resend-verification/
-{
-  "email": "alice@example.com"
-}
-```
-
-### Login
-
-```json
-POST /api/auth/login/
-{
-  "email": "alice@example.com",
-  "password": "SecurePass123!"
-}
-```
-
 ### Google auth
 
 ```json
 POST /api/auth/google/
 {
   "credential": "<google-id-token>"
+}
+```
+
+Successful response:
+
+```json
+{
+  "success": true,
+  "message": "Google login successful",
+  "data": {
+    "user": {
+      "id": 1,
+      "email": "alice@example.com",
+      "full_name": "Alice Sharma",
+      "username": "alice-sharma-ab12cd"
+    }
+  }
+}
+```
+
+Auth tokens are set in HTTP-only cookies by the backend.
+
+### Refresh token
+
+```json
+POST /api/auth/token/refresh/
+{
+  "refresh": "<refresh-token>"
+}
+```
+
+This endpoint is currently the default SimpleJWT refresh view.
+
+### Logout
+
+```json
+POST /api/auth/logout/
+{
+  "refresh": "<refresh-token>"
+}
+```
+
+The backend blacklists the refresh token and clears the auth cookies.
+
+### Update profile
+
+```json
+PATCH /api/profile/
+{
+  "full_name": "Alice Sharma",
+  "city": "Kathmandu",
+  "preferred_area": "Baneshwor",
+  "skill_level": "mixed",
+  "bio": "Weekend futsal player"
 }
 ```
 
@@ -358,7 +395,7 @@ POST /api/games/
 }
 ```
 
-### Mark attendance result
+### Mark participant status
 
 ```json
 POST /api/games/{id}/mark-participant-status/
@@ -396,18 +433,17 @@ Errors are normalized like this:
 ## Security and validation highlights
 
 - custom user model
-- JWT access and refresh tokens
-- refresh token blacklist logout
-- signed email verification links with expiry
-- resend cooldown protection
-- duplicate join prevention with database constraint + service checks
-- host-only participant management
+- backend Google token verification
+- JWT access token read from HTTP-only cookies
+- refresh token blacklist on logout
+- database-backed duplicate join protection
+- host-only participant management actions
 - atomic transactions on concurrency-sensitive flows
-- env-based secret management
-- secure cookie flags outside debug mode
+- environment-based secret management
+- CORS credentials enabled for cookie auth
 - permission checks on writable game actions
 
-## Production deployment on a VPS (no Docker)
+## Production deployment on a VPS
 
 ### 1. Install system packages
 
@@ -438,14 +474,16 @@ pip install -r requirements.txt
 
 ### 4. Configure `.env`
 
-Use production values:
+Use production values for:
 
 - `DEBUG=False`
-- strong `SECRET_KEY`
-- real PostgreSQL credentials
-- real `ALLOWED_HOSTS`
-- real `CSRF_TRUSTED_ORIGINS`
-- real Redis URLs
+- `SECRET_KEY`
+- `ALLOWED_HOSTS`
+- `CORS_ALLOWED_ORIGINS`
+- `CSRF_TRUSTED_ORIGINS`
+- PostgreSQL settings
+- Redis settings
+- `GOOGLE_OAUTH_CLIENT_ID`
 
 ### 5. Run migrations and collect static files
 
@@ -468,7 +506,7 @@ Use the examples in `deploy/`:
 - `deploy/celery.service.example`
 - `deploy/celerybeat.service.example`
 
-Copy them into `/etc/systemd/system/`, adjust paths, then:
+Copy them into `/etc/systemd/system/`, adjust paths, then run:
 
 ```bash
 sudo systemctl daemon-reload
@@ -484,7 +522,7 @@ sudo systemctl start celerybeat
 
 Use `deploy/nginx.teamup.conf.example` as a base.
 
-Then:
+Then run:
 
 ```bash
 sudo ln -s /etc/nginx/sites-available/teamup /etc/nginx/sites-enabled/
@@ -492,7 +530,7 @@ sudo nginx -t
 sudo systemctl restart nginx
 ```
 
-### 9. Optional TLS
+### 9. Add TLS
 
 Use Certbot for HTTPS:
 
@@ -501,16 +539,13 @@ sudo apt install certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.com
 ```
 
+For production cookie auth, review your cookie `Secure`, `SameSite`, CORS, CSRF, and proxy settings carefully.
+
 ## Notes for future improvement
 
-- connect a real frontend verification success/failure page
-- add payment gateway integration later
+- make refresh flow fully cookie-native end to end
+- remove stale auth-related env variables if they are no longer needed
+- add automated tests for cookie refresh and logout flows
 - add WebSocket or push notifications
-- add game cancellation refund rules if payments become real
-- add abuse moderation and fraud checks
 - add richer analytics and admin dashboards
-- add automated test suite and CI pipeline
-
-## Smoke-tested status
-
-The project was smoke-tested locally with Django migrations and a basic API flow using a temporary SQLite fallback. Main intended runtime remains PostgreSQL + Redis + Celery.
+- add CI for tests and deploy checks
