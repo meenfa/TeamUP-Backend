@@ -21,8 +21,9 @@ class GameViewSet(StandardResponseMixin, viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)
-        return Response({'success': True, 'message': 'Games fetched successfully.', 'data': response.data}, status=response.status_code)
-
+        # return Response({'success': True, 'message': 'Games fetched successfully.', 'data': response.data}, status=response.status_code)
+        return self.success_response(response.data, 'Games fetched successfully.')
+    
     def retrieve(self, request, *args, **kwargs):
         serializer = self.get_serializer(self.get_object())
         return self.success_response(serializer.data)
@@ -38,8 +39,10 @@ class GameViewSet(StandardResponseMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return self.success_response(serializer.data, 'Game updated successfully.')
-
+        return self.success_response(
+            self.get_serializer(instance).data,
+            'Game updated successfully.'
+        )
     @action(detail=True, methods=['post'])
     def join(self, request, pk=None):
         game = self.get_object()

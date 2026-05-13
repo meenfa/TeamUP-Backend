@@ -7,6 +7,7 @@ from .models import Game, GameParticipant
 
 
 class GameParticipantSerializer(serializers.ModelSerializer):
+    # Nested serialization
     user = UserSerializer(read_only=True)
 
     class Meta:
