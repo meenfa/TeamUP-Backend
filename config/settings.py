@@ -122,6 +122,7 @@ AUTH_USER_MODEL = 'accounts.User'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
          "accounts.authentication.CookieJWTAuthentication",
+         "rest_framework_simplejwt.authentication.JWTAuthentication",
          
     ),
     'DEFAULT_PERMISSION_CLASSES': (
