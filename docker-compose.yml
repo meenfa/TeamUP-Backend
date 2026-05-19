@@ -15,41 +15,71 @@ services:
       POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  
 
   web:
     build: .
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
       - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
     ports:
       - "8000:8000"
     depends_on:
-      - redis
       - db
+      - redis
     environment:
       REDIS_URL: redis://redis:6379/0
+      DB_ENGINE: postgresql
+      DB_NAME: teamup_db
+      DB_USER: teamup
+      DB_PASSWORD: postgres
+      DB_HOST: db
+      DB_PORT: 5432
+      DEBUG: 1
 
   worker:
     build: .
     command: celery -A teamup_backend_mvp worker --loglevel=info
     volumes:
       - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
     depends_on:
       - redis
       - db
     environment:
       REDIS_URL: redis://redis:6379/0
+      DB_ENGINE: postgresql
+      DB_NAME: teamup_db
+      DB_USER: teamup
+      DB_PASSWORD: postgres
+      DB_HOST: db
+      DB_PORT: 5432
 
   beat:
     build: .
     command: celery -A teamup_backend_mvp beat --loglevel=info
     volumes:
       - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
     depends_on:
       - redis
       - db
     environment:
       REDIS_URL: redis://redis:6379/0
+      DB_ENGINE: postgresql
+      DB_NAME: teamup_db
+      DB_USER: teamup
+      DB_PASSWORD: postgres
+      DB_HOST: db
+      DB_PORT: 5432
 
 volumes:
   redis_data:
+  postgres_data:
+  static_volume:
+  media_volume:
