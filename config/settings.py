@@ -4,8 +4,8 @@ import os
 
 from dotenv import load_dotenv
 from celery.schedules import crontab
-# from decouple import config
 
+# from decouple import config
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
@@ -13,14 +13,11 @@ load_dotenv(BASE_DIR / '.env')
 def env_list(name, default=''):
     return [item.strip() for item in os.getenv(name, default).split(',') if item.strip()]
 
-
 SECRET_KEY = os.getenv('SECRET_KEY', 'unsafe-dev-secret')
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', '127.0.0.1,localhost')
 
 CORS_ALLOW_CREDENTIALS = True
-
-
 
 CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS', 'http://localhost:3000' if DEBUG else '')
 CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS', 'http://localhost:3000' if DEBUG else '')
