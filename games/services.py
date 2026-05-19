@@ -39,12 +39,22 @@ class GameService:
             participant.removed_by_host = False
             participant.save(update_fields=['status', 'removed_by_host'])
 
+        # Existing notification to the user who joined
         Notification.objects.create(
             user=user,
             notification_type=NotificationType.JOIN_CONFIRMATION,
             title='Join request submitted',
             message=f'Your request to join the game at {game.location_name} on {game.game_date} is pending host approval.',
         )
+        
+        # notify the host abt new join request
+        Notification.objects.create(
+            user=user,
+            notification_type=NotificationType.JOIN_REQUEST,
+            title='New Join request',
+             message=f'{user.full_name} wants to join your game "{game.title}" on {game.game_date}',
+       )
+        
         return participant
 
     @staticmethod

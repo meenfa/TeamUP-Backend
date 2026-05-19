@@ -11,8 +11,8 @@ class SkillLevel(models.TextChoices):
 class NotificationType(models.TextChoices):
     GAME_REMINDER = 'game_reminder', 'Game Reminder'
     JOIN_CONFIRMATION = 'join_confirmation', 'Join Confirmation'
+    JOIN_REQUEST = 'join_request', 'Join Request'
     SYSTEM = 'system', 'System'
-
 
 class ParticipantStatus(models.TextChoices):
     PENDING = 'pending', 'Pending'

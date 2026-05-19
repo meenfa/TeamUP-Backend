@@ -49,6 +49,7 @@ class GameViewSet(StandardResponseMixin, viewsets.ModelViewSet):
         participant = GameService.join_game(game, request.user)
         return self.success_response({'participant_id': participant.id, 'status': participant.status}, 'Join request submitted successfully.', status.HTTP_201_CREATED)
 
+    # detail = true means this action works on a SINGLE object using its ID (pk)
     @action(detail=True, methods=['post'])
     def leave(self, request, pk=None):
         game = self.get_object()

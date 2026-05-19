@@ -6,6 +6,9 @@ __pycache__/
 !.env.example
 staticfiles/
 media/
-db.sqlite3
+db.sqlite3 
 *.sqlite3
 celerybeat-schedule*
+
+# deploy configurations
+deploy/
