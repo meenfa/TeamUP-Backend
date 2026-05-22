@@ -1,5 +1,3 @@
-# accounts/tests/factories.py
-
 import factory
 from factory.django import DjangoModelFactory
 from decimal import Decimal

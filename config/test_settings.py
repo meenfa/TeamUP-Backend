@@ -1,4 +1,3 @@
-# config/test_settings.py
 """
 Test settings - Uses SQLite in-memory for fast, isolated tests
 Your actual PostgreSQL database is completely untouched
