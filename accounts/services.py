@@ -41,18 +41,14 @@ class GoogleAuthService:
         except ValueError:
             raise ValueError("Invalid Google ID token.")
 
-    # ---------------------------
     # username generator
-    # ---------------------------
     @staticmethod
     def generate_username(full_name: str):
         base = slugify(full_name)[:20] or "user"
         unique_id = uuid.uuid4().hex[:6]
         return f"{base}-{unique_id}"
 
-    # ---------------------------
     # main auth flow
-    # ---------------------------
     @classmethod
     @transaction.atomic
     def authenticate(cls, token: str):
@@ -70,9 +66,7 @@ class GoogleAuthService:
         if not payload.get("email_verified", False):
             raise ValueError("Google email not verified.")
 
-        # ---------------------------
         # FIND USER
-        # ---------------------------
         user = User.objects.select_for_update().filter(google_sub=google_sub).first()
 
         if user is None:
@@ -81,9 +75,7 @@ class GoogleAuthService:
             if user and user.google_sub and user.google_sub != google_sub:
                 raise ValueError("Email linked to another Google account.")
 
-        # ---------------------------
         # CREATE USER
-        # ---------------------------
         if user is None:
             user = User.objects.create_user(
                 email=email,
@@ -97,9 +89,7 @@ class GoogleAuthService:
             user.username = cls.generate_username(user.full_name)
             user.save(update_fields=["username"])
 
-        # ---------------------------
         # UPDATE USER
-        # ---------------------------
         updated_fields = []
 
         if user.google_sub != google_sub:
@@ -125,9 +115,7 @@ class GoogleAuthService:
         if updated_fields:
             user.save(update_fields=updated_fields)
 
-        # ---------------------------
         # PROFILE PHOTO (Google fallback)
-        # ---------------------------
         profile = user.profile
 
         if picture and not profile.google_photo:
@@ -136,9 +124,7 @@ class GoogleAuthService:
 
         return user
 
-    # ---------------------------
     # token response
-    # ---------------------------
     @staticmethod
     def create_token_payload(user: User):
         refresh = RefreshToken.for_user(user)
