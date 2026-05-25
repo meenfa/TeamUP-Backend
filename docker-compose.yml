@@ -1,22 +1,38 @@
 services:
   redis:
     image: redis:7-alpine
+    command: redis-server --appendonly yes
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     restart: always
+    env_file:
+      - .env  # Load from .env file
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   db:
     image: postgres:15-alpine
     environment:
-      POSTGRES_DB: teamup_db
-      POSTGRES_USER: teamup
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data  
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   web:
     build: .
@@ -28,55 +44,48 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
     environment:
-      REDIS_URL: redis://redis:6379/0
-      DB_ENGINE: postgresql
-      DB_NAME: teamup_db
-      DB_USER: teamup
-      DB_PASSWORD: postgres
-      DB_HOST: db
-      DB_PORT: 5432
-      DEBUG: 1
+      # Override specific values if needed (all from .env by default)
+      DEBUG: ${DEBUG:-1}  # Default to 1 if not in .env
+    restart: always
 
   worker:
     build: .
-    command: celery -A teamup_backend_mvp worker --loglevel=info
+    command: celery -A teamup_backend_mvp worker --loglevel=info --concurrency=${CELERY_WORKERS:-4}
     volumes:
       - .:/app
       - static_volume:/app/staticfiles
       - media_volume:/app/media
     depends_on:
-      - redis
-      - db
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      DB_ENGINE: postgresql
-      DB_NAME: teamup_db
-      DB_USER: teamup
-      DB_PASSWORD: postgres
-      DB_HOST: db
-      DB_PORT: 5432
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    restart: always
 
   beat:
     build: .
-    command: celery -A teamup_backend_mvp beat --loglevel=info
+    command: celery -A teamup_backend_mvp beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
     volumes:
       - .:/app
       - static_volume:/app/staticfiles
       - media_volume:/app/media
     depends_on:
-      - redis
-      - db
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      DB_ENGINE: postgresql
-      DB_NAME: teamup_db
-      DB_USER: teamup
-      DB_PASSWORD: postgres
-      DB_HOST: db
-      DB_PORT: 5432
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    restart: always
 
 volumes:
   redis_data:
