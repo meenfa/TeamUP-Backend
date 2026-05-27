@@ -7,9 +7,17 @@ from django.db import models
 from django.utils import timezone
 
 from common.constants import GameStatus, ParticipantStatus, SkillLevel
+import uuid
 
-
+try:
+    import uuid6
+    default_uuid_generator = uuid6.uuid7
+except ImportError:
+    default_uuid_generator = uuid.uuid4
+    
+    
 class Game(models.Model):
+    id=models.UUIDField(primary_key=True, default=default_uuid_generator, editable=False)
     host = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='hosted_games')
     location_name = models.CharField(max_length=255)
     area_city = models.CharField(max_length=120, db_index=True)
@@ -57,6 +65,7 @@ class Game(models.Model):
 
 
 class GameParticipant(models.Model):
+    id=models.UUIDField(primary_key=True, default=default_uuid_generator, editable=False)
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='participants')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='game_participations')
     status = models.CharField(max_length=20, choices=ParticipantStatus.choices, default=ParticipantStatus.PENDING, db_index=True)

@@ -4,8 +4,17 @@ from django.db import models
 
 from games.models import Game
 
+import uuid
+
+try:
+    import uuid6
+    default_uuid_generator = uuid6.uuid7
+except ImportError:
+    default_uuid_generator= uuid.uuid4
+
 
 class Rating(models.Model):
+    id=models.UUIDField(primary_key=True, default=default_uuid_generator, editable=False)
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='ratings')
     from_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='ratings_given')
     to_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='ratings_received')

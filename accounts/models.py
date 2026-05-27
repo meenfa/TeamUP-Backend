@@ -8,10 +8,17 @@ from django.utils import timezone
 from common.constants import SkillLevel
 
 from .managers import UserManager
+import uuid
 
+try:
+    import uuid6
+    default_uuid_generator = uuid6.uuid7
+except ImportError:
+    default_uuid_generator= uuid.uuid4
 
 class User(AbstractBaseUser, PermissionsMixin):
-    email = models.EmailField(unique=True, db_index=True)
+    id=models.UUIDField(primary_key=True, default=default_uuid_generator, editable=False)
+    email = models.EmailField(unique=True)
     google_sub = models.CharField(max_length=255, unique=True, null=True, blank=True, db_index=True)
     phone_number = models.CharField(max_length=20, unique=True, null=True, blank=True, db_index=True)
     full_name = models.CharField(max_length=150)
@@ -33,8 +40,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return self.email
 
-
 class Profile(models.Model):
+    id=models.UUIDField(primary_key=True, default=default_uuid_generator, editable=False)
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
     
     profile_photo = models.ImageField(upload_to='profile_photos/', null=True, blank=True)
@@ -65,6 +72,7 @@ class Profile(models.Model):
 
 
 class NoShowRestriction(models.Model):
+    id=models.UUIDField(primary_key=True, default=default_uuid_generator, editable=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='restrictions')
     reason = models.CharField(max_length=255)
     starts_at = models.DateTimeField(default=timezone.now)
