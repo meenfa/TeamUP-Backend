@@ -56,8 +56,9 @@ services:
     restart: always
 
   worker:
+    profiles: ["celery"]  # won't start by default
     build: .
-    command: celery -A teamup_backend_mvp worker --loglevel=info --concurrency=${CELERY_WORKERS:-4}
+    command: celery -A config worker --loglevel=info --concurrency=${CELERY_WORKERS:-4}
     volumes:
       - .:/app
       - static_volume:/app/staticfiles
@@ -72,8 +73,9 @@ services:
     restart: always
 
   beat:
+    profiles: ["celery"]  # won't start by default
     build: .
-    command: celery -A teamup_backend_mvp beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    command: celery -A config beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
     volumes:
       - .:/app
       - static_volume:/app/staticfiles
